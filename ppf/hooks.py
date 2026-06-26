@@ -70,6 +70,19 @@ app_license = "mit"
 # automatically create page for each record of this doctype
 # website_generators = ["Web Page"]
 
+# Customer PWA: serve the React SPA (and its service worker) under /customer.
+# Concrete static files (e.g. /customer/sw.js) resolve before this catch-all,
+# which routes client-side deep links back to the SPA shell.
+website_route_rules = [
+	{"from_route": "/customer/<path:app_path>", "to_route": "customer"},
+	{"from_route": "/admin/<path:app_path>", "to_route": "admin"},
+]
+
+after_migrate = ["ppf.setup.ensure_custom_fields"]
+
+# Map every customer-facing login (password or Google) to a Customer + Contact.
+on_session_creation = ["ppf.api.onboarding.ensure_customer_for_user"]
+
 # Jinja
 # ----------
 

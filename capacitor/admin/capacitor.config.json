@@ -1,0 +1,11 @@
+{
+  "appId": "store.emrid.ppf.admin",
+  "appName": "Purple Patch Farms Admin",
+  "webDir": "www",
+  "server": {
+    "url": "https://ppf.emrid.store/admin",
+    "allowNavigation": ["ppf.emrid.store"],
+    "cleartext": false
+  },
+  "backgroundColor": "#ffffff"
+}

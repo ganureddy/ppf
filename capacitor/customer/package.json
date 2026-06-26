@@ -1,0 +1,21 @@
+{
+  "name": "ppf-customer-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Purple Patch Farms customer app (Capacitor hybrid loading the /customer PWA).",
+  "scripts": {
+    "sync": "cap sync",
+    "open:android": "cap open android",
+    "open:ios": "cap open ios",
+    "add:android": "cap add android",
+    "add:ios": "cap add ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}
