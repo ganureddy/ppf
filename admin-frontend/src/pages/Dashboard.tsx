@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from "recharts";
-import { useDashboard, useMe } from "@/api/hooks";
+import { useDashboard } from "@/api/hooks";
 import { Loading } from "@/components/EmptyState";
 import { formatDate, formatMoney } from "@/lib/format";
 
@@ -15,7 +15,6 @@ function todayLocalISO(): string {
 }
 
 export default function Dashboard() {
-	const { data: me } = useMe();
 	const [from, setFrom] = useState(monthStartISO());
 	const [to, setTo] = useState(todayLocalISO());
 	const { data, isLoading } = useDashboard({ from_date: from, to_date: to });
@@ -31,18 +30,12 @@ export default function Dashboard() {
 	return (
 		<div className="pb-6">
 			<div className="bg-gradient-to-b from-ppf-purple-deep to-ppf-purple px-4 pb-8 pt-4 text-white">
-				<div className="flex items-center justify-between">
-					<div className="flex items-center gap-2">
-						<div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 font-bold">
-							{(me?.name ?? "A").charAt(0)}
-						</div>
-						<span className="font-semibold">My Analytics</span>
-					</div>
+				<div className="flex justify-end">
 					<span className="rounded-full bg-white/15 px-3 py-1 text-xs">
 						{formatDate(data.from_date)} – {formatDate(data.to_date)}
 					</span>
 				</div>
-				<div className="mt-5">
+				<div className="mt-4">
 					<p className="text-3xl font-bold">{formatMoney(data.total_sales, currency)}</p>
 					<p className="text-sm text-white/75">Sales for selected range</p>
 				</div>

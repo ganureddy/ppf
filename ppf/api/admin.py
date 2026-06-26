@@ -193,11 +193,15 @@ def dashboard(from_date=None, to_date=None, month=None):
 		start = getdate(f"{year}-{mo:02d}-01")
 		monthly.append({"month": MONTH_ABBR[mo - 1], "amount": _sales_total(start, get_last_day(start))})
 
-	# Customer pending.
+	# Payment pending — invoices still owing money, posted within the range.
 	total_customers = frappe.db.count("Customer", {"disabled": 0})
 	pending_rows = frappe.get_all(
 		"Sales Invoice",
-		filters={"docstatus": 1, "outstanding_amount": [">", 0]},
+		filters={
+			"docstatus": 1,
+			"outstanding_amount": [">", 0],
+			"posting_date": ["between", [from_d, to_d]],
+		},
 		fields=["customer", "outstanding_amount"],
 	)
 	pending_customers = len({r.customer for r in pending_rows})
