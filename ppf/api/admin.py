@@ -51,19 +51,99 @@ def _sales_total(start, end):
 	return flt(rows[0].total) if rows and rows[0].total else 0.0
 
 
+def _so_sales_total(start, end):
+	"""Sum of submitted Sales Order grand totals with transaction_date in range."""
+	rows = frappe.get_all(
+		"Sales Order",
+		filters={"docstatus": 1, "transaction_date": ["between", [start, end]]},
+		fields=["sum(grand_total) as total"],
+	)
+	return flt(rows[0].total) if rows and rows[0].total else 0.0
+
+
+def _linfit(ys):
+	"""Ordinary least-squares slope/intercept for y over x = 0..n-1."""
+	n = len(ys)
+	if n == 0:
+		return 0.0, 0.0
+	xs = list(range(n))
+	sx, sy = sum(xs), sum(ys)
+	sxx = sum(x * x for x in xs)
+	sxy = sum(x * y for x, y in zip(xs, ys))
+	denom = n * sxx - sx * sx
+	if denom == 0:
+		return 0.0, sy / n
+	m = (n * sxy - sx * sy) / denom
+	b = (sy - m * sx) / n
+	return m, b
+
+
+def _sales_forecast():
+	"""Simple linear forecast of sales for the next 4 weeks from the last 4 weeks.
+
+	Uses submitted Sales Orders (by transaction_date). Returns weekly history +
+	predicted points so the UI can draw an actual-vs-forecast chart.
+	"""
+	end = getdate(nowdate())
+	history, ys = [], []
+	for i in (4, 3, 2, 1):  # oldest → newest week
+		w_end = add_days(end, -7 * (i - 1))
+		w_start = add_days(w_end, -6)
+		amt = _so_sales_total(w_start, w_end)
+		ys.append(amt)
+		history.append({"label": "This wk" if i == 1 else f"{i}w ago", "amount": amt, "forecast": False})
+
+	m, b = _linfit(ys)
+	preds, points = [], list(history)
+	for k in range(1, 5):  # next 4 weeks
+		val = max(m * (3 + k) + b, 0.0)
+		preds.append(val)
+		points.append({"label": f"+{k}w", "amount": val, "forecast": True})
+
+	last_30 = sum(ys)
+	predicted_next = sum(preds)
+	if last_30:
+		trend_pct = round((predicted_next - last_30) / last_30 * 100)
+	else:
+		trend_pct = 100 if predicted_next else 0
+
+	return {
+		"basis_total": last_30,
+		"daily_avg": last_30 / 28.0 if last_30 else 0.0,
+		"predicted_next_month": predicted_next,
+		"trend_pct": trend_pct,
+		"points": points,
+	}
+
+
 @frappe.whitelist()
-def dashboard(month=None):
-	"""Analytics payload for the admin home screen (A1)."""
+def dashboard(from_date=None, to_date=None, month=None):
+	"""Analytics payload for the admin home screen (A1).
+
+	Sales / collected / outstanding and the Top Sales analysis honour the
+	selected [from_date, to_date] range (defaults to the current month).
+	"""
 	_require_admin()
 	currency = get_default_currency()
-	ref = getdate(month + "-01") if month else getdate(nowdate())
-
-	# Sales / Collected / Outstanding across submitted Sales Orders (live).
 	from ppf.api.payments import get_order_payment_info
 
+	# Resolve the active date range.
+	to_d = getdate(to_date) if to_date else getdate(nowdate())
+	if from_date:
+		from_d = getdate(from_date)
+	elif month:
+		ref_m = getdate(month + "-01")
+		from_d, to_d = get_first_day(ref_m), get_last_day(ref_m)
+	else:
+		from_d = get_first_day(to_d)
+	if from_d > to_d:
+		from_d, to_d = to_d, from_d
+	ref = to_d
+
+	# Sales / Collected / Outstanding for orders placed within the range.
 	so_rows = frappe.get_all(
 		"Sales Order",
-		filters={"docstatus": 1},
+		filters={"docstatus": 1, "transaction_date": ["between", [from_d, to_d]]},
 		fields=["name", "customer", "grand_total", "advance_paid", "transaction_date"],
 		limit_page_length=5000,
 	)
@@ -73,6 +153,22 @@ def dashboard(month=None):
 		total_sales += info["grand_total"]
 		total_collected += info["paid"]
 		total_outstanding += info["pending"]
+
+	# Top sales analysis — best-selling products within the range.
+	top_products = frappe.db.sql(
+		"""
+		select soi.item_name as item_name, sum(soi.qty) as qty, sum(soi.amount) as amount
+		from `tabSales Order Item` soi
+		join `tabSales Order` so on so.name = soi.parent
+		where so.docstatus = 1 and so.transaction_date between %(f)s and %(t)s
+		group by soi.item_name order by amount desc limit 5
+		""",
+		{"f": from_d, "t": to_d},
+		as_dict=True,
+	)
+	for p in top_products:
+		p["qty"] = flt(p.qty)
+		p["amount"] = flt(p.amount)
 
 	# Three month summary cards (ref month and the two before it).
 	month_cards = []
@@ -90,7 +186,7 @@ def dashboard(month=None):
 			{"label": f"{MONTH_ABBR[getdate(m).month - 1]} {getdate(m).year}", "amount": amount, "delta": delta}
 		)
 
-	# Monthly bars Jan..current month of the reference year.
+	# Monthly bars Jan..Dec of the reference year.
 	year = getdate(ref).year
 	monthly = []
 	for mo in range(1, 13):
@@ -102,26 +198,28 @@ def dashboard(month=None):
 	pending_rows = frappe.get_all(
 		"Sales Invoice",
 		filters={"docstatus": 1, "outstanding_amount": [">", 0]},
-		fields=["distinct customer as customer"],
+		fields=["customer", "outstanding_amount"],
 	)
-	pending_customers = len(pending_rows)
-
-	# Payment-pending = number of submitted Sales Invoices still owing money (A1 card).
-	pending_invoices = frappe.db.count(
-		"Sales Invoice", {"docstatus": 1, "outstanding_amount": [">", 0]}
-	)
+	pending_customers = len({r.customer for r in pending_rows})
+	pending_invoices = len(pending_rows)
+	pending_amount = sum(flt(r.outstanding_amount) for r in pending_rows)
 
 	return {
 		"currency": currency,
+		"from_date": str(from_d),
+		"to_date": str(to_d),
 		"total_sales": total_sales,
 		"total_collected": total_collected,
 		"total_outstanding": total_outstanding,
 		"month": f"{MONTH_ABBR[getdate(ref).month - 1]} {getdate(ref).year}",
 		"month_cards": month_cards,
 		"monthly_sales": monthly,
+		"top_products": top_products,
 		"customer_total": total_customers,
 		"customer_pending": pending_customers,
 		"pending_invoices": pending_invoices,
+		"pending_amount": pending_amount,
+		"forecast": _sales_forecast(),
 	}
 
 

@@ -3,6 +3,7 @@ import { useProductMeta, useProducts, useSaveProduct } from "@/api/hooks";
 import { CardSkeleton, EmptyState, Spinner } from "@/components/EmptyState";
 import { CloseIcon, EditIcon, PlusIcon } from "@/components/icons";
 import { frappeError, uploadFile } from "@/lib/api";
+import { compressImage } from "@/lib/image";
 import { useToast } from "@/store/toast";
 import { formatMoney } from "@/lib/format";
 import type { Product } from "@/lib/types";
@@ -49,9 +50,11 @@ function ProductForm({ initial, onClose }: { initial: FormState; onClose: () => 
 		}
 		setUploading(true);
 		try {
-			const url = await uploadFile(file);
+			const compressed = await compressImage(file, { maxDim: 1600, quality: 0.82 });
+			const url = await uploadFile(compressed);
 			set("image", url);
-			push("Photo uploaded");
+			const kb = Math.max(1, Math.round(compressed.size / 1024));
+			push(`Photo uploaded (${kb} KB)`);
 		} catch (err) {
 			push(frappeError(err, "Could not upload photo"), "error");
 		} finally {

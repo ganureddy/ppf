@@ -27,10 +27,17 @@ export function useMe() {
 	});
 }
 
-export function useDashboard(month?: string) {
+export function useDashboard(range?: { from_date?: string; to_date?: string }) {
+	const from_date = range?.from_date;
+	const to_date = range?.to_date;
 	return useQuery({
-		queryKey: ["dashboard", month ?? "current"],
-		queryFn: () => call<Dashboard>("ppf.api.admin.dashboard", month ? { month } : undefined),
+		queryKey: ["dashboard", from_date ?? "", to_date ?? ""],
+		queryFn: () => {
+			const params: Record<string, string> = {};
+			if (from_date) params.from_date = from_date;
+			if (to_date) params.to_date = to_date;
+			return call<Dashboard>("ppf.api.admin.dashboard", Object.keys(params).length ? params : undefined);
+		},
 	});
 }
 

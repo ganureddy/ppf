@@ -15,17 +15,42 @@ export interface MonthlyBar {
 	amount: number;
 }
 
+export interface TopProduct {
+	item_name: string;
+	qty: number;
+	amount: number;
+}
+
+export interface ForecastPoint {
+	label: string;
+	amount: number;
+	forecast: boolean;
+}
+
+export interface Forecast {
+	basis_total: number;
+	daily_avg: number;
+	predicted_next_month: number;
+	trend_pct: number;
+	points: ForecastPoint[];
+}
+
 export interface Dashboard {
 	currency: string;
+	from_date: string;
+	to_date: string;
 	total_sales: number;
 	total_collected: number;
 	total_outstanding: number;
 	month: string;
 	month_cards: MonthCard[];
 	monthly_sales: MonthlyBar[];
+	top_products: TopProduct[];
 	customer_total: number;
 	customer_pending: number;
 	pending_invoices: number;
+	pending_amount: number;
+	forecast: Forecast;
 }
 
 export interface OrderItem {
