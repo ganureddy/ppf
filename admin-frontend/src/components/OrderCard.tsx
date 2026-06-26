@@ -29,12 +29,14 @@ export function OrderCard({
 	order,
 	middleAction,
 	onChangeDeliveryDay,
+	onEdit,
 	markPaid,
 	fulfillment,
 }: {
 	order: Order;
 	middleAction: MiddleAction;
 	onChangeDeliveryDay: (date: string) => Promise<void> | void;
+	onEdit?: () => void;
 	markPaid?: MarkPaid;
 	fulfillment?: Fulfillment;
 }) {
@@ -161,7 +163,7 @@ export function OrderCard({
 			)}
 
 			<div className="mt-3 flex gap-2">
-				<button className={btn} onClick={() => window.open(`/app/sales-order/${encodeURIComponent(order.name)}`, "_blank")}>
+				<button className={btn} onClick={onEdit}>
 					Edit
 				</button>
 				<button

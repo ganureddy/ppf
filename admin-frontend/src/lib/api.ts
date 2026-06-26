@@ -55,6 +55,17 @@ export async function call<T>(
 	return res.data.message as T;
 }
 
+export async function uploadFile(file: File): Promise<string> {
+	const fd = new FormData();
+	fd.append("file", file, file.name);
+	fd.append("is_private", "0");
+	fd.append("folder", "Home");
+	const res = await api.post("/api/method/upload_file", fd, {
+		headers: { "Content-Type": "multipart/form-data" },
+	});
+	return res.data.message.file_url as string;
+}
+
 export async function login(usr: string, pwd: string): Promise<void> {
 	await api.post("/api/method/login", { usr, pwd });
 }

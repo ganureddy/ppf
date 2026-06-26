@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import add_months, flt, get_first_day, get_last_day, getdate, nowdate
+from frappe.utils import add_days, add_months, flt, get_first_day, get_last_day, getdate, nowdate
 
 from ppf.api.utils import (
 	get_default_currency,
@@ -10,11 +10,33 @@ from ppf.api.utils import (
 
 MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
+# Products in this store only ever belong to one of these two groups.
+SELLABLE_ITEM_GROUPS = ["Fruits", "Vegetables"]
+
 
 def _require_admin():
 	require_login()
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Login required."), frappe.AuthenticationError)
+
+
+def _ensure_item_group(name):
+	"""Make sure an Item Group exists (created as a leaf under the root group)."""
+	if frappe.db.exists("Item Group", name):
+		return name
+	parent = (
+		"All Item Groups"
+		if frappe.db.exists("Item Group", "All Item Groups")
+		else frappe.db.get_value("Item Group", {"is_group": 1}, "name")
+	)
+	doc = frappe.new_doc("Item Group")
+	doc.item_group_name = name
+	doc.is_group = 0
+	if parent:
+		doc.parent_item_group = parent
+	doc.flags.ignore_permissions = True
+	doc.insert(ignore_permissions=True)
+	return name
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +106,11 @@ def dashboard(month=None):
 	)
 	pending_customers = len(pending_rows)
 
+	# Payment-pending = number of submitted Sales Invoices still owing money (A1 card).
+	pending_invoices = frappe.db.count(
+		"Sales Invoice", {"docstatus": 1, "outstanding_amount": [">", 0]}
+	)
+
 	return {
 		"currency": currency,
 		"total_sales": total_sales,
@@ -94,6 +121,7 @@ def dashboard(month=None):
 		"monthly_sales": monthly,
 		"customer_total": total_customers,
 		"customer_pending": pending_customers,
+		"pending_invoices": pending_invoices,
 	}
 
 
@@ -648,6 +676,30 @@ def mark_paid(sales_order):
 
 
 @frappe.whitelist(methods=["POST"])
+def unmark_paid(sales_order):
+	"""Undo a manual 'Mark as Paid' by cancelling the manual Payment Entry."""
+	_require_admin()
+	from ppf.api.payments import get_order_payment_info
+
+	if not frappe.db.exists("Sales Order", sales_order):
+		frappe.throw(_("Order not found."))
+	# mark_paid records the payment with reference_no = f"manual-{sales_order}".
+	names = frappe.get_all(
+		"Payment Entry",
+		filters={"reference_no": f"manual-{sales_order}", "docstatus": 1},
+		pluck="name",
+	)
+	if not names:
+		frappe.throw(_("No manual payment was found to undo for this order."))
+	for n in names:
+		pe = frappe.get_doc("Payment Entry", n)
+		pe.flags.ignore_permissions = True
+		pe.cancel()
+	frappe.db.commit()  # nosemgrep
+	return get_order_payment_info(sales_order)
+
+
+@frappe.whitelist(methods=["POST"])
 def change_delivery_day(sales_order, date):
 	"""Update the delivery date on a Sales Order (header + lines)."""
 	_require_admin()
@@ -658,6 +710,113 @@ def change_delivery_day(sales_order, date):
 		frappe.db.set_value("Sales Order Item", item, "delivery_date", getdate(date))
 	frappe.db.commit()  # nosemgrep
 	return {"sales_order": sales_order, "delivery_date": str(getdate(date))}
+
+
+@frappe.whitelist()
+def order_detail(sales_order):
+	"""Full order detail for the in-app order editor (header + line items)."""
+	_require_admin()
+	from ppf.api.payments import get_order_payment_info
+
+	so = frappe.get_doc("Sales Order", sales_order)
+	info = get_order_payment_info(so.name)
+	return {
+		"name": so.name,
+		"customer": so.customer,
+		"customer_name": so.customer_name,
+		"transaction_date": str(so.transaction_date),
+		"delivery_date": str(so.delivery_date) if so.delivery_date else None,
+		"status": so.status,
+		"docstatus": so.docstatus,
+		"currency": so.currency,
+		"grand_total": flt(so.grand_total),
+		"per_billed": flt(so.per_billed),
+		"per_delivered": flt(so.per_delivered),
+		"payment_status": info["payment_status"],
+		"items": [
+			{
+				"docname": d.name,
+				"item_code": d.item_code,
+				"item_name": d.item_name,
+				"qty": flt(d.qty),
+				"uom": d.uom,
+				"rate": flt(d.rate),
+				"amount": flt(d.amount),
+				"delivered_qty": flt(d.delivered_qty),
+				"billed_amt": flt(d.billed_amt),
+			}
+			for d in so.items
+		],
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def update_order(sales_order, items, delivery_date=None):
+	"""Edit a Sales Order in-place: line qty/rate, add/remove lines, delivery date.
+
+	Submitted orders go through ERPNext's ``update_child_qty_rate`` so the
+	billed/delivered guards are respected; drafts are edited directly. This lets
+	the admin app edit orders without bouncing to the ERPNext desk.
+	"""
+	_require_admin()
+	import json as _json
+
+	if isinstance(items, str):
+		items = _json.loads(items)
+	if not frappe.db.exists("Sales Order", sales_order):
+		frappe.throw(_("Order not found."))
+
+	items = [it for it in (items or []) if flt(it.get("qty")) > 0]
+	if not items:
+		frappe.throw(_("An order must have at least one line item."))
+
+	so = frappe.get_doc("Sales Order", sales_order)
+	dd = getdate(delivery_date) if delivery_date else None
+
+	if so.docstatus == 1:
+		trans_items = []
+		for it in items:
+			row = {
+				"item_code": it.get("item_code"),
+				"qty": flt(it.get("qty")),
+				"rate": flt(it.get("rate")),
+			}
+			if it.get("docname"):
+				row["docname"] = it.get("docname")
+			if it.get("uom"):
+				row["uom"] = it.get("uom")
+			if dd:
+				row["delivery_date"] = str(dd)
+			trans_items.append(row)
+
+		from erpnext.controllers.accounts_controller import update_child_qty_rate
+
+		update_child_qty_rate("Sales Order", _json.dumps(trans_items), sales_order)
+
+		if dd:
+			frappe.db.set_value("Sales Order", sales_order, "delivery_date", dd)
+			for d in frappe.get_all("Sales Order Item", filters={"parent": sales_order}, pluck="name"):
+				frappe.db.set_value("Sales Order Item", d, "delivery_date", dd)
+	else:
+		if dd:
+			so.delivery_date = dd
+		so.set("items", [])
+		for it in items:
+			so.append(
+				"items",
+				{
+					"item_code": it.get("item_code"),
+					"qty": flt(it.get("qty")),
+					"rate": flt(it.get("rate")),
+					"uom": it.get("uom") or None,
+					"delivery_date": dd or so.delivery_date,
+				},
+			)
+		so.flags.ignore_permissions = True
+		so.save(ignore_permissions=True)
+
+	frappe.db.commit()  # nosemgrep
+	return order_detail(sales_order)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -677,16 +836,113 @@ def bill_now(sales_order):
 	return {"sales_invoice": si.name, "status": si.status, "submitted": True}
 
 
+@frappe.whitelist()
+def invoices(q=None, page=1, page_length=20):
+	"""Paged submitted Sales Invoices for the admin Invoice screen."""
+	_require_admin()
+	page = int(page or 1)
+	page_length = int(page_length or 20)
+	filters = {"docstatus": 1}
+	if q:
+		filters["customer_name"] = ["like", f"%{q}%"]
+
+	total = frappe.db.count("Sales Invoice", filters)
+	rows = frappe.get_all(
+		"Sales Invoice",
+		filters=filters,
+		fields=[
+			"name",
+			"customer",
+			"customer_name",
+			"posting_date",
+			"due_date",
+			"grand_total",
+			"outstanding_amount",
+			"status",
+			"currency",
+		],
+		order_by="posting_date desc, creation desc",
+		limit_start=(page - 1) * page_length,
+		limit_page_length=page_length,
+	)
+	return {"invoices": rows, "total": total, "page": page}
+
+
+@frappe.whitelist(methods=["POST"])
+def create_order(customer, items, delivery_date=None):
+	"""Admin: create + submit a Sales Order for a chosen customer (A8)."""
+	_require_admin()
+	import json as _json
+
+	if isinstance(items, str):
+		items = _json.loads(items)
+	if not customer or not frappe.db.exists("Customer", customer):
+		frappe.throw(_("Please select a valid customer."))
+
+	items = [it for it in (items or []) if flt(it.get("qty")) > 0]
+	if not items:
+		frappe.throw(_("Add at least one item with a quantity."))
+
+	company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
+		"Global Defaults", "default_company"
+	)
+	dd = getdate(delivery_date) if delivery_date else getdate(add_days(nowdate(), 1))
+
+	doc = frappe.new_doc("Sales Order")
+	doc.customer = customer
+	doc.company = company
+	doc.transaction_date = nowdate()
+	doc.delivery_date = dd
+	doc.order_type = "Sales"
+	price_list = get_default_selling_price_list()
+	if price_list:
+		doc.selling_price_list = price_list
+
+	for it in items:
+		row = {"item_code": it.get("item_code"), "qty": flt(it.get("qty")), "delivery_date": dd}
+		if it.get("rate") not in (None, ""):
+			row["rate"] = flt(it.get("rate"))
+		if it.get("uom"):
+			row["uom"] = it.get("uom")
+		doc.append("items", row)
+
+	doc.flags.ignore_permissions = True
+	doc.save(ignore_permissions=True)
+	doc.submit()
+	frappe.db.commit()  # nosemgrep
+	return {"sales_order": doc.name, "status": doc.status}
+
+
 # ---------------------------------------------------------------------------
 # Shipment / dispatch (A5)
 # ---------------------------------------------------------------------------
+def _date_range_filter(from_date, to_date):
+	"""Build a Frappe filter clause for an optional [from_date, to_date] range."""
+	frm = getdate(from_date) if from_date else None
+	to = getdate(to_date) if to_date else None
+	if frm and to:
+		return ["between", [frm, to]]
+	if frm:
+		return [">=", frm]
+	if to:
+		return ["<=", to]
+	return None
+
+
 @frappe.whitelist()
-def shipment_pending(bill_date=None):
-	"""Submitted orders that are not fully delivered (optionally by delivery date)."""
+def shipment_pending(from_date=None, to_date=None, bill_date=None):
+	"""Submitted orders not fully delivered, optionally within a delivery-date range.
+
+	``bill_date`` is kept for backwards compatibility (single-day lookup).
+	"""
 	_require_admin()
 	filters = {"docstatus": 1, "per_delivered": ["<", 100]}
-	if bill_date:
+	if bill_date and not (from_date or to_date):
 		filters["delivery_date"] = getdate(bill_date)
+	else:
+		rng = _date_range_filter(from_date, to_date)
+		if rng:
+			filters["delivery_date"] = rng
 	rows = frappe.get_all(
 		"Sales Order",
 		filters=filters,
@@ -698,12 +954,19 @@ def shipment_pending(bill_date=None):
 
 
 @frappe.whitelist()
-def shipment_completed(shipped_date=None):
-	"""Delivery Notes posted on the given date (completed shipments)."""
+def shipment_completed(from_date=None, to_date=None, shipped_date=None):
+	"""Delivery Notes posted within a date range (completed shipments).
+
+	``shipped_date`` is kept for backwards compatibility (single-day lookup).
+	"""
 	_require_admin()
 	filters = {"docstatus": 1}
-	if shipped_date:
+	if shipped_date and not (from_date or to_date):
 		filters["posting_date"] = getdate(shipped_date)
+	else:
+		rng = _date_range_filter(from_date, to_date)
+		if rng:
+			filters["posting_date"] = rng
 	rows = frappe.get_all(
 		"Delivery Note",
 		filters=filters,
@@ -736,10 +999,12 @@ def dispatch(sales_order):
 # ---------------------------------------------------------------------------
 @frappe.whitelist()
 def meta():
-	"""Dropdown data for the product form."""
+	"""Dropdown data for the product form (item groups limited to Fruits/Vegetables)."""
 	_require_admin()
+	for g in SELLABLE_ITEM_GROUPS:
+		_ensure_item_group(g)
 	return {
-		"item_groups": frappe.get_all("Item Group", filters={"is_group": 0}, pluck="name"),
+		"item_groups": SELLABLE_ITEM_GROUPS,
 		"uoms": frappe.get_all("UOM", filters={"enabled": 1}, pluck="name"),
 		"price_list": get_default_selling_price_list(),
 		"currency": get_default_currency(),
@@ -804,7 +1069,8 @@ def save_product(
 	"""Create or update an Item + its selling Item Price + published stock."""
 	_require_admin()
 	rate = flt(rate)
-	item_group = item_group or frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+	item_group = item_group or SELLABLE_ITEM_GROUPS[0]
+	_ensure_item_group(item_group)
 
 	if item_code and frappe.db.exists("Item", item_code):
 		item = frappe.get_doc("Item", item_code)

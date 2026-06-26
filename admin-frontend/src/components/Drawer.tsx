@@ -1,13 +1,14 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useMe } from "@/api/hooks";
 import { logout } from "@/lib/api";
-import { BoxIcon, ChartIcon, CloseIcon, DollarDocIcon, HomeIcon, ListIcon, PowerIcon, ReceiptIcon, SlidersIcon, TruckIcon, UserIcon } from "./icons";
+import { BoxIcon, ChartIcon, CloseIcon, DollarDocIcon, HomeIcon, ListIcon, PlusIcon, PowerIcon, ReceiptIcon, SlidersIcon, TruckIcon, UserIcon } from "./icons";
 
 const LOGO = "https://ppf.emrid.store/files/172355246554z5jjLtKL.png";
 
 const links = [
 	{ to: "/", label: "Home", icon: HomeIcon, end: true },
 	{ to: "/orders", label: "Orders", icon: ListIcon },
+	{ to: "/create-order", label: "Create Order", icon: PlusIcon },
 	{ to: "/bill-now", label: "Bill Now", icon: DollarDocIcon },
 	{ to: "/shipment", label: "Shipment", icon: TruckIcon },
 	{ to: "/invoice", label: "Invoice", icon: ReceiptIcon },

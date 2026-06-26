@@ -7,7 +7,7 @@ import type { Order, Shipment as ShipmentDoc } from "@/lib/types";
 import { Spinner } from "@/components/EmptyState";
 import { CloseIcon, StoreIcon } from "@/components/icons";
 
-function DateCard({
+function RangeCard({
 	title,
 	subtitle,
 	cta,
@@ -16,35 +16,47 @@ function DateCard({
 	title: string;
 	subtitle: string;
 	cta: string;
-	onFetch: (date: string) => Promise<void>;
+	onFetch: (from: string, to: string) => Promise<void>;
 }) {
-	const [date, setDate] = useState(todayISO());
+	const [from, setFrom] = useState(todayISO());
+	const [to, setTo] = useState(todayISO());
 	const [loading, setLoading] = useState(false);
+
+	const dateInput = "w-full rounded-lg border border-black/10 bg-ppf-bg px-3 py-2.5 pr-9 text-sm";
 
 	return (
 		<div className="rounded-card bg-white p-4 shadow-card">
 			<h3 className="font-semibold text-ppf-text">{title}</h3>
 			<p className="mt-1 text-sm text-ppf-subtext">{subtitle}</p>
-			<div className="mt-3 flex items-center gap-2">
-				<div className="relative flex-1">
-					<input
-						type="date"
-						value={date}
-						onChange={(e) => setDate(e.target.value)}
-						className="w-full rounded-lg border border-black/10 bg-ppf-bg px-3 py-2.5 pr-9 text-sm"
-					/>
-					{date && (
-						<button onClick={() => setDate("")} aria-label="Clear" className="absolute right-2 top-1/2 -translate-y-1/2 text-ppf-subtext">
-							<CloseIcon width={16} height={16} />
-						</button>
-					)}
+			<div className="mt-3 grid grid-cols-2 gap-2">
+				<div>
+					<label className="mb-1 block text-xs text-ppf-subtext">From date</label>
+					<div className="relative">
+						<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={dateInput} />
+						{from && (
+							<button onClick={() => setFrom("")} aria-label="Clear from" className="absolute right-2 top-1/2 -translate-y-1/2 text-ppf-subtext">
+								<CloseIcon width={16} height={16} />
+							</button>
+						)}
+					</div>
+				</div>
+				<div>
+					<label className="mb-1 block text-xs text-ppf-subtext">To date</label>
+					<div className="relative">
+						<input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={dateInput} />
+						{to && (
+							<button onClick={() => setTo("")} aria-label="Clear to" className="absolute right-2 top-1/2 -translate-y-1/2 text-ppf-subtext">
+								<CloseIcon width={16} height={16} />
+							</button>
+						)}
+					</div>
 				</div>
 			</div>
 			<button
 				onClick={async () => {
 					setLoading(true);
 					try {
-						await onFetch(date);
+						await onFetch(from, to);
 					} finally {
 						setLoading(false);
 					}
@@ -64,21 +76,21 @@ export default function Shipment() {
 	const dispatch = useDispatch();
 	const { push } = useToast();
 
-	async function loadPending(date: string) {
+	async function loadPending(from: string, to: string) {
 		try {
-			const res = await fetchShipmentPending(date || undefined);
+			const res = await fetchShipmentPending(from || undefined, to || undefined);
 			setPending(res.orders);
-			if (!res.orders.length) push("No pending orders for that date", "error");
+			if (!res.orders.length) push("No pending orders for that range", "error");
 		} catch (e) {
 			push(frappeError(e, "Could not fetch pending orders"), "error");
 		}
 	}
 
-	async function loadCompleted(date: string) {
+	async function loadCompleted(from: string, to: string) {
 		try {
-			const res = await fetchShipmentCompleted(date || undefined);
+			const res = await fetchShipmentCompleted(from || undefined, to || undefined);
 			setCompleted(res.shipments);
-			if (!res.shipments.length) push("No shipments for that date", "error");
+			if (!res.shipments.length) push("No shipments for that range", "error");
 		} catch (e) {
 			push(frappeError(e, "Could not fetch shipments"), "error");
 		}
@@ -97,9 +109,9 @@ export default function Shipment() {
 
 	return (
 		<div className="space-y-3 p-3">
-			<DateCard
-				title="Select Bill Date"
-				subtitle="Please select a bill date to fetch pending orders."
+			<RangeCard
+				title="Pending Orders"
+				subtitle="Select a delivery date range to fetch pending orders."
 				cta="Fetch Pending Orders"
 				onFetch={loadPending}
 			/>
@@ -129,9 +141,9 @@ export default function Shipment() {
 				</div>
 			)}
 
-			<DateCard
-				title="Select Shipped Date"
-				subtitle="Please select a shipment date to fetch orders."
+			<RangeCard
+				title="Completed Shipments"
+				subtitle="Select a shipped date range to fetch completed orders."
 				cta="Fetch Completed Orders"
 				onFetch={loadCompleted}
 			/>

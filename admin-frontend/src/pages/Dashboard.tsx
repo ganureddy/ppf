@@ -10,8 +10,6 @@ export default function Dashboard() {
 	if (isLoading || !data) return <Loading />;
 
 	const currency = data.currency;
-	const settled = data.customer_total - data.customer_pending;
-	const pct = data.customer_total ? Math.round((settled / data.customer_total) * 100) : 0;
 
 	return (
 		<div className="pb-6">
@@ -57,14 +55,13 @@ export default function Dashboard() {
 			</div>
 
 			<div className="mt-4 px-3">
-				<div className="rounded-card bg-white p-4 shadow-card">
-					<h3 className="mb-2 font-semibold text-ppf-text">Customer Pending</h3>
-					<div className="flex items-center justify-between text-sm">
-						<span className="text-ppf-subtext">Total: <span className="font-semibold text-ppf-text">{data.customer_total}</span></span>
-						<span className="text-ppf-subtext">Left: <span className="font-semibold text-ppf-text">{data.customer_pending}</span></span>
+				<div className="flex items-center justify-between rounded-card bg-white p-4 shadow-card">
+					<div>
+						<h3 className="font-semibold text-ppf-text">Payment Pending</h3>
+						<p className="mt-0.5 text-sm text-ppf-subtext">Invoices awaiting payment</p>
 					</div>
-					<div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-ppf-bg">
-						<div className="h-full rounded-full bg-ppf-purple" style={{ width: `${pct}%` }} />
+					<div className="flex h-14 w-14 items-center justify-center rounded-full bg-ppf-purple-light">
+						<span className="text-2xl font-bold text-ppf-purple">{data.pending_invoices}</span>
 					</div>
 				</div>
 			</div>

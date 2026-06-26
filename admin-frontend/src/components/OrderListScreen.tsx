@@ -1,28 +1,57 @@
 import { useState } from "react";
-import { useChangeDeliveryDay, useMarkPaid, useOrders, useSetFulfillment } from "@/api/hooks";
+import { Link } from "react-router-dom";
+import {
+	useChangeDeliveryDay,
+	useMarkPaid,
+	useOrders,
+	useSetFulfillment,
+	useUnmarkPaid,
+} from "@/api/hooks";
 import { useToast } from "@/store/toast";
 import { frappeError } from "@/lib/api";
 import type { Order } from "@/lib/types";
 import { CardSkeleton, EmptyState } from "./EmptyState";
 import { OrderCard, type MiddleAction } from "./OrderCard";
-import { SearchIcon, SlidersIcon } from "./icons";
+import { OrderEditModal } from "./OrderEditModal";
+import { PlusIcon, SearchIcon, SlidersIcon } from "./icons";
 
 export function OrderListScreen({
+	title = "Orders",
+	subtitle,
+	variant = "manage",
 	middleActionFor,
 }: {
+	title?: string;
+	subtitle?: string;
+	variant?: "manage" | "bill";
 	middleActionFor: (order: Order, helpers: { refetch: () => void }) => MiddleAction;
 }) {
 	const [q, setQ] = useState("");
+	const [editing, setEditing] = useState<string | null>(null);
 	const { data, isLoading, refetch } = useOrders(q);
 	const changeDay = useChangeDeliveryDay();
 	const markPaid = useMarkPaid();
+	const unmarkPaid = useUnmarkPaid();
 	const setFulfillment = useSetFulfillment();
 	const { push } = useToast();
 
 	async function onSetFulfillment(order: Order, status: string) {
+		const prev = order.fulfillment_status || "Received";
 		try {
 			await setFulfillment.mutateAsync({ sales_order: order.name, status });
-			push(`${order.name} → ${status}`);
+			push(`${order.name} → ${status}`, "success", {
+				action: {
+					label: "Undo",
+					onClick: async () => {
+						try {
+							await setFulfillment.mutateAsync({ sales_order: order.name, status: prev });
+							push(`Reverted to ${prev}`);
+						} catch (e) {
+							push(frappeError(e, "Could not undo"), "error");
+						}
+					},
+				},
+			});
 		} catch (e) {
 			push(frappeError(e, "Could not update status"), "error");
 		}
@@ -33,7 +62,19 @@ export function OrderListScreen({
 	async function onMarkPaid(order: Order) {
 		try {
 			const r = await markPaid.mutateAsync(order.name);
-			push(`${order.name} → ${r.payment_status}`);
+			push(`${order.name} → ${r.payment_status}`, "success", {
+				action: {
+					label: "Undo",
+					onClick: async () => {
+						try {
+							await unmarkPaid.mutateAsync(order.name);
+							push("Payment reversed");
+						} catch (e) {
+							push(frappeError(e, "Could not undo payment"), "error");
+						}
+					},
+				},
+			});
 		} catch (e) {
 			push(frappeError(e, "Could not mark as paid"), "error");
 		}
@@ -47,6 +88,8 @@ export function OrderListScreen({
 			push(frappeError(e, "Could not update delivery date"), "error");
 		}
 	}
+
+	const accent = variant === "bill" ? "bg-ppf-green" : "bg-ppf-purple";
 
 	return (
 		<div className="p-3">
@@ -66,11 +109,20 @@ export function OrderListScreen({
 			</div>
 
 			<div className="mb-2 flex items-center gap-2">
-				<h2 className="font-semibold text-ppf-text">Orders</h2>
-				<span className="rounded-full bg-ppf-purple px-2.5 py-0.5 text-xs font-semibold text-white">
+				<h2 className="font-semibold text-ppf-text">{title}</h2>
+				<span className={`rounded-full ${accent} px-2.5 py-0.5 text-xs font-semibold text-white`}>
 					{data?.total ?? 0}
 				</span>
+				{variant === "manage" && (
+					<Link
+						to="/create-order"
+						className="ml-auto flex items-center gap-1 rounded-full bg-ppf-purple px-3 py-1.5 text-xs font-semibold text-white"
+					>
+						<PlusIcon width={14} height={14} /> New Order
+					</Link>
+				)}
 			</div>
+			{subtitle && <p className="mb-3 -mt-1 text-sm text-ppf-subtext">{subtitle}</p>}
 
 			{isLoading ? (
 				<CardSkeleton />
@@ -83,19 +135,28 @@ export function OrderListScreen({
 							key={order.name}
 							order={order}
 							middleAction={middleActionFor(order, { refetch })}
+							onEdit={() => setEditing(order.name)}
 							onChangeDeliveryDay={(date) => onChangeDeliveryDay(order, date)}
 							markPaid={{
 								onClick: () => onMarkPaid(order),
 								loading: markPaid.isPending && markPaid.variables === order.name,
 							}}
-							fulfillment={{
-								status: order.fulfillment_status || "Received",
-								onSet: (s) => onSetFulfillment(order, s),
-								loading: setFulfillment.isPending,
-							}}
+							fulfillment={
+								variant === "manage"
+									? {
+											status: order.fulfillment_status || "Received",
+											onSet: (s) => onSetFulfillment(order, s),
+											loading: setFulfillment.isPending,
+										}
+									: undefined
+							}
 						/>
 					))}
 				</div>
+			)}
+
+			{editing && (
+				<OrderEditModal orderName={editing} onClose={() => setEditing(null)} onSaved={() => refetch()} />
 			)}
 		</div>
 	);

@@ -7,6 +7,9 @@ export default function ManageOrders() {
 
 	return (
 		<OrderListScreen
+			title="Manage Orders"
+			subtitle="Track fulfilment, edit lines and record payments."
+			variant="manage"
 			middleActionFor={(order, { refetch }) => ({
 				label: "Delete",
 				onClick: async () => {

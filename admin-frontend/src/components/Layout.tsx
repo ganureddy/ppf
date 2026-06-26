@@ -7,6 +7,7 @@ import { Drawer } from "./Drawer";
 const TITLES: Record<string, string> = {
 	"/": "My Analytics",
 	"/orders": "Orders",
+	"/create-order": "Create Order",
 	"/bill-now": "Bill Now",
 	"/shipment": "Select Date",
 	"/invoice": "Invoice",

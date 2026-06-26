@@ -5,9 +5,11 @@ import type {
 	Dashboard,
 	DeliveryConfig,
 	Insights,
+	InvoicesResponse,
 	Me,
 	MonthlyReport,
 	Order,
+	OrderDetail,
 	OrdersResponse,
 	Product,
 	ProductMeta,
@@ -145,6 +147,66 @@ export function useMarkPaid() {
 	});
 }
 
+export function useUnmarkPaid() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (sales_order: string) =>
+			call<{ payment_status: string; pending: number }>("ppf.api.admin.unmark_paid", { sales_order }, "POST"),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["admin-orders"] });
+			qc.invalidateQueries({ queryKey: ["dashboard"] });
+		},
+	});
+}
+
+export async function getOrderDetail(sales_order: string) {
+	return call<OrderDetail>("ppf.api.admin.order_detail", { sales_order });
+}
+
+export function useUpdateOrder() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (payload: { sales_order: string; items: unknown; delivery_date?: string }) =>
+			call<OrderDetail>(
+				"ppf.api.admin.update_order",
+				{
+					sales_order: payload.sales_order,
+					items: JSON.stringify(payload.items),
+					delivery_date: payload.delivery_date,
+				},
+				"POST",
+			),
+		onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-orders"] }),
+	});
+}
+
+export function useInvoices(q: string, page = 1) {
+	return useQuery({
+		queryKey: ["admin-invoices", q, page],
+		queryFn: () => call<InvoicesResponse>("ppf.api.admin.invoices", { q, page }),
+	});
+}
+
+export function useCreateOrder() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (payload: { customer: string; items: unknown; delivery_date?: string }) =>
+			call<{ sales_order: string; status: string }>(
+				"ppf.api.admin.create_order",
+				{
+					customer: payload.customer,
+					items: JSON.stringify(payload.items),
+					delivery_date: payload.delivery_date,
+				},
+				"POST",
+			),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["admin-orders"] });
+			qc.invalidateQueries({ queryKey: ["dashboard"] });
+		},
+	});
+}
+
 export function useCustomers(q: string) {
 	return useQuery({
 		queryKey: ["admin-customers", q],
@@ -207,16 +269,22 @@ export function useSaveProduct() {
 	});
 }
 
-export async function fetchShipmentPending(bill_date?: string) {
+export async function fetchShipmentPending(from_date?: string, to_date?: string) {
+	const params: Record<string, string> = {};
+	if (from_date) params.from_date = from_date;
+	if (to_date) params.to_date = to_date;
 	return call<{ orders: Order[]; total: number }>(
 		"ppf.api.admin.shipment_pending",
-		bill_date ? { bill_date } : undefined,
+		Object.keys(params).length ? params : undefined,
 	);
 }
 
-export async function fetchShipmentCompleted(shipped_date?: string) {
+export async function fetchShipmentCompleted(from_date?: string, to_date?: string) {
+	const params: Record<string, string> = {};
+	if (from_date) params.from_date = from_date;
+	if (to_date) params.to_date = to_date;
 	return call<{ shipments: Shipment[]; total: number }>(
 		"ppf.api.admin.shipment_completed",
-		shipped_date ? { shipped_date } : undefined,
+		Object.keys(params).length ? params : undefined,
 	);
 }

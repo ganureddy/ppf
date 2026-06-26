@@ -9,6 +9,9 @@ export default function BillNow() {
 
 	return (
 		<OrderListScreen
+			title="Bill Now"
+			subtitle="Generate a Sales Invoice from a confirmed order."
+			variant="bill"
 			middleActionFor={(order, { refetch }) => ({
 				label: "Bill Now",
 				loading: billNow.isPending && billNow.variables === order.name,

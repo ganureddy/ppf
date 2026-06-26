@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useProductMeta, useProducts, useSaveProduct } from "@/api/hooks";
 import { CardSkeleton, EmptyState, Spinner } from "@/components/EmptyState";
 import { CloseIcon, EditIcon, PlusIcon } from "@/components/icons";
-import { frappeError } from "@/lib/api";
+import { frappeError, uploadFile } from "@/lib/api";
 import { useToast } from "@/store/toast";
 import { formatMoney } from "@/lib/format";
 import type { Product } from "@/lib/types";
@@ -20,7 +20,7 @@ interface FormState {
 
 const empty: FormState = {
 	item_name: "",
-	item_group: "",
+	item_group: "Fruits",
 	uom: "",
 	rate: "",
 	published_stock: "",
@@ -33,9 +33,31 @@ function ProductForm({ initial, onClose }: { initial: FormState; onClose: () => 
 	const save = useSaveProduct();
 	const { push } = useToast();
 	const [form, setForm] = useState<FormState>(initial);
+	const [uploading, setUploading] = useState(false);
+	const fileRef = useRef<HTMLInputElement>(null);
 	const isEdit = !!initial.item_code;
 
 	const set = (k: keyof FormState, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+
+	async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+		const file = e.target.files?.[0];
+		e.target.value = "";
+		if (!file) return;
+		if (!file.type.startsWith("image/")) {
+			push("Please choose an image file", "error");
+			return;
+		}
+		setUploading(true);
+		try {
+			const url = await uploadFile(file);
+			set("image", url);
+			push("Photo uploaded");
+		} catch (err) {
+			push(frappeError(err, "Could not upload photo"), "error");
+		} finally {
+			setUploading(false);
+		}
+	}
 
 	async function submit(e: React.FormEvent) {
 		e.preventDefault();
@@ -99,8 +121,7 @@ function ProductForm({ initial, onClose }: { initial: FormState; onClose: () => 
 						<div>
 							<label className="mb-1 block text-sm font-medium">Item Group</label>
 							<select className={field} value={form.item_group} onChange={(e) => set("item_group", e.target.value)}>
-								<option value="">Default</option>
-								{meta?.item_groups.map((g) => (
+								{(meta?.item_groups ?? ["Fruits", "Vegetables"]).map((g) => (
 									<option key={g} value={g}>
 										{g}
 									</option>
@@ -114,8 +135,37 @@ function ProductForm({ initial, onClose }: { initial: FormState; onClose: () => 
 					</div>
 
 					<div>
-						<label className="mb-1 block text-sm font-medium">Image URL (optional)</label>
-						<input className={field} value={form.image} onChange={(e) => set("image", e.target.value)} placeholder="/files/... or https://..." />
+						<label className="mb-1 block text-sm font-medium">Product Photo</label>
+						<p className="mb-2 text-xs text-ppf-subtext">Shown to customers in the shop.</p>
+						<input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickPhoto} />
+						<div className="flex items-center gap-3">
+							{form.image ? (
+								<img src={form.image} alt="" className="h-16 w-16 rounded-lg border border-black/10 object-cover" />
+							) : (
+								<div className="flex h-16 w-16 items-center justify-center rounded-lg border border-dashed border-black/20 bg-ppf-bg text-[10px] text-ppf-subtext">
+									No photo
+								</div>
+							)}
+							<div className="flex flex-1 flex-col gap-2">
+								<button
+									type="button"
+									onClick={() => fileRef.current?.click()}
+									disabled={uploading}
+									className="flex items-center justify-center gap-2 rounded-lg border border-ppf-purple py-2 text-sm font-semibold text-ppf-purple disabled:opacity-60"
+								>
+									{uploading ? <Spinner className="h-4 w-4" /> : form.image ? "Change Photo" : "Upload Photo"}
+								</button>
+								{form.image && !uploading && (
+									<button
+										type="button"
+										onClick={() => set("image", "")}
+										className="text-xs font-medium text-ppf-danger"
+									>
+										Remove photo
+									</button>
+								)}
+							</div>
+						</div>
 					</div>
 
 					<label className="flex items-center gap-2 text-sm">
@@ -140,7 +190,7 @@ export default function Products() {
 		setForm({
 			item_code: p.item_code,
 			item_name: p.item_name,
-			item_group: p.item_group ?? "",
+			item_group: p.item_group === "Vegetables" ? "Vegetables" : "Fruits",
 			uom: p.uom,
 			rate: String(p.rate ?? ""),
 			published_stock: p.published_stock == null ? "" : String(p.published_stock),

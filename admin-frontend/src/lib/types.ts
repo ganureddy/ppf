@@ -25,6 +25,53 @@ export interface Dashboard {
 	monthly_sales: MonthlyBar[];
 	customer_total: number;
 	customer_pending: number;
+	pending_invoices: number;
+}
+
+export interface OrderItem {
+	docname?: string;
+	item_code: string;
+	item_name: string;
+	qty: number;
+	uom: string;
+	rate: number;
+	amount: number;
+	delivered_qty?: number;
+	billed_amt?: number;
+}
+
+export interface OrderDetail {
+	name: string;
+	customer: string;
+	customer_name: string;
+	transaction_date: string;
+	delivery_date?: string | null;
+	status: string;
+	docstatus: number;
+	currency: string;
+	grand_total: number;
+	per_billed: number;
+	per_delivered: number;
+	payment_status: string;
+	items: OrderItem[];
+}
+
+export interface Invoice {
+	name: string;
+	customer: string;
+	customer_name: string;
+	posting_date: string;
+	due_date?: string;
+	grand_total: number;
+	outstanding_amount: number;
+	status: string;
+	currency: string;
+}
+
+export interface InvoicesResponse {
+	invoices: Invoice[];
+	total: number;
+	page: number;
 }
 
 export interface Order {

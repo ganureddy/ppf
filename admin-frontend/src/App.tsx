@@ -11,6 +11,8 @@ import Login from "@/pages/Login";
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const ManageOrders = lazy(() => import("@/pages/ManageOrders"));
 const BillNow = lazy(() => import("@/pages/BillNow"));
+const Invoice = lazy(() => import("@/pages/Invoice"));
+const CreateOrder = lazy(() => import("@/pages/CreateOrder"));
 const Shipment = lazy(() => import("@/pages/Shipment"));
 const Products = lazy(() => import("@/pages/Products"));
 const Customers = lazy(() => import("@/pages/Customers"));
@@ -43,9 +45,10 @@ export default function App() {
 					>
 						<Route path="/" element={<Dashboard />} />
 						<Route path="/orders" element={<ManageOrders />} />
+						<Route path="/create-order" element={<CreateOrder />} />
 						<Route path="/bill-now" element={<BillNow />} />
 						<Route path="/shipment" element={<Shipment />} />
-						<Route path="/invoice" element={<ManageOrders />} />
+						<Route path="/invoice" element={<Invoice />} />
 						<Route path="/products" element={<Products />} />
 						<Route path="/customers" element={<Customers />} />
 						<Route path="/insights" element={<Insights />} />
